@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+rt="/ptv"
+hrt="${rt}/healer"
+source ${rt}/rtsetup.sh
+
+# Pass all the arguments to the dnsbrute tool
+dnsbrute $@

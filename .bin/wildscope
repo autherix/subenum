@@ -45,7 +45,7 @@ done
 
 # Read from stdin, save it to variable domains
 domains=$(cat -)
-echo "domains: ${domains}"
+# echo "domains: ${domains}"
 # If no domains, exit
 if [ -z "$domains" ]; then
     echo "No domains given in stdin"

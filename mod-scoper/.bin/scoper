@@ -2,7 +2,7 @@
 
 rt="/ptv"
 hrt="${rt}/healer"
-source ${hrt}/healerenum/sub/mod-scoper/creds
+source ${hrt}/healerenum/subenum/mod-scoper/creds
 source ${rt}/rtsetup.sh
 
 help() {
