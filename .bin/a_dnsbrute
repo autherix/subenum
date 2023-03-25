@@ -4,5 +4,7 @@ rt="/ptv"
 hrt="${rt}/healer"
 source ${rt}/rtsetup.sh
 
+cd ${hrt}/healerenum/subenum/
+
 # Pass all the arguments to the dnsbrute tool
-dnsbrute $@
+dnsbrute $@ -r ${hrt}/healerenum/subenum/resolvers.txt -w ${hrt}/healerenum/subenum/sublist.txt
