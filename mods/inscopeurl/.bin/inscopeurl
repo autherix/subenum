@@ -80,15 +80,16 @@ fi
 # Run scoper on the given target name ($tgtname) and save it on a variable called url_scope.
 # If eligible_url is 1, then only print the scopes that are eligible for the target name.
 if [ $eligible_url -eq 1 ]; then
-    url_scope=$(${hrt}/healerenum/sub/mod-scoper/scoper -t $tgtname --url --eligible)
+    url_scope=$(scoper -t $tgtname --url --eligible)
 else
-    url_scope=$(${hrt}/healerenum/sub/mod-scoper/scoper -t $tgtname --url)
+    url_scope=$(scoper -t $tgtname --url)
 fi
+# url_scope=$(echo "${url_scope}" | grep -oP "https?://[a-zA-Z0-9.-]+\.[a-zA-Z0-9.-]+")
 
 # If the above command returns an error, exit with error message and error code.
 if [ $? -ne 0 ]; then 
     seterror "Error while running scoper"
 fi
 
-echo "${url_scope}"
-
+# remove http:// or https:// from the url_scope variable on each line, then remove te last / from the url_scope variable on each line.
+echo "${url_scope}" | sed 's/https\?:\/\///g' | sed 's/\/$//g'
