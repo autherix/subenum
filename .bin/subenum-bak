@@ -20,7 +20,7 @@ def LoadVenv():
             if os.path.exists(requirements_txt):
                 source_cmd = f'source {os.path.join(venv_dir, "bin", "activate")}'
                 pyinstall_cmd = f'python3 -m pip install -r {requirements_txt}'
-                res = os.system(f'bash -c "{source_cmd} && {pyinstall_cmd}" && deactivate')
+                res = os.system(f'bash -c "{source_cmd} && {pyinstall_cmd} && deactivate"')
                 # res = os.system(f'{os.path.join(venv_dir, "bin", "python3")} 
                 if res != 0:
                     print('Failed to install dependencies. requirements.txt may be corrupted or not accessible.')
@@ -35,6 +35,9 @@ def LoadVenv():
     if not sys.executable.startswith(os_join_path):
         res = os.execv(os_join_path, [os_join_path] + sys.argv)
 LoadVenv()
+
+
+
 import requests, sys, os, typer, click, json, time
 from rich import print
 # import plumbum

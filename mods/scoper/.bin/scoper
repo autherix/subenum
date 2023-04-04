@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+source /ptv/rtsetup.sh
 SCRIPTPATH=$(dirname "$0")
 # Source the file in $scriptpath/../creds.sh
 source $SCRIPTPATH/../creds.sh

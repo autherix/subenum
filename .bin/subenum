@@ -12,28 +12,42 @@ target="semrush"
 # if we have $3 set target to $3, if not, show error and exit
 [[ -z $3 ]] && seterror "No target name provided" || target=$3
 
-# healerdb init 
-healerdb database create -db $db
-healerdb target create -db $db -t $target
-
 # If platform is h1, run the following
 if [[ $platform == "h1" ]]; then
     # run inscope urls, then remove newlines
     inscope_urls=$(inscopeurl -t $target)
+    # Check error 
+    exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        seterror "inscopeurl failed with exit code $exit_code - Error message: $inscope_urls"
+    fi
+
+    # healerdb init 
+    healerdb database create -db $db
+    healerdb target create -db $db -t $target
+    
     # If inscope_urls is empty, return error saying that there are no inscope urls
     if [[ -z $inscope_urls ]]; then
         seterror "No inscope urls found"
     fi
 
-    echo "[+] Found inscope urls:"
-    echo -e ${inscope_urls}
+    # in blue [+] Found inscope urls:
+    # echo -e "\e[34m[+] Found inscope urls:\e[0m"
+    # echo -e ${inscope_urls}
 
     # Add all inscope urls Domains to the database
     echo ${inscope_urls} | tr -d '\n' | xargs -d" " -I C_SCOPE echo C_SCOPE | awk -F. '{print $(NF-1)"."$NF}' | sort -u | xargs -I NEW_DOMAIN healerdb domain create -db $db -t $target -d NEW_DOMAIN
 
     # Find urls not starting with * and add them to an array called inscope_urls_single
     inscope_urls_single=$(echo $inscope_urls | tr -d '\n' | xargs -d" " -I C_SCOPE echo C_SCOPE | grep -v "*")
-    echo "[+] Single urls:"
+    # in blue [+] Single urls:
+    echo -e "\e[34m[+] Single urls:\e[0m"
+
+    # If inscope_urls_single is empty, print a message saying that there are no single domains(in yellow) and exit 0
+    if [[ -z $inscope_urls_single ]]; then
+        echo -e "\e[33m[+] No single domains found\e[0m"
+    fi
+
     # Iterate over inscope_urls_single
     for i in ${inscope_urls_single}; do
         domain=$(echo $i | awk -F. '{print $(NF-1)"."$NF}')
@@ -45,9 +59,17 @@ if [[ $platform == "h1" ]]; then
 
     # Make a string ready for subfinder like -d domain1 -d domain2 -d domain3
     inscope_urls_wild_subfinder="$(echo $inscope_urls_wild | tr -d '\n' | xargs -d" " -I C_SCOPE echo -d C_SCOPE)"
-    # echo "[+] Wildcard urls:" $inscope_urls_wild_subfinder
 
-    # Run subfinder on the wildcard domains and save all the results to a variable called subfinder_results_wild
+    # If inscope_urls_wild is empty, print a message saying that there are no wildcard domains(in yellow) and exit 0
+    if [[ -z $inscope_urls_wild ]]; then
+        echo -e "\e[33m[+] No wildcard domains found\e[0m"
+        # print in green [+] Subdomain enumeration finished
+        echo -e "\e[32m[+] Subdomain enumeration finished\e[0m"
+        exit 0
+    fi
+
+    # Run (in blue) subfinder on the wildcard domains and save all the results to a variable called subfinder_results_wild
+    echo -e "\e[34m[+] Running subfinder on wildcard domains\e[0m"
     subfinder_results_wild=$(subfinder $inscope_urls_wild_subfinder -oJ -silent)
 
     # echo $subfinder_results_wild | jq -r 'select(.input=="semrush.com") | .host'

@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 
-rt="/ptv"
-hrt="${rt}/healer"
-source "${rt}/rtsetup.sh"
+source /ptv/rtsetup.sh
 
 help() {
     echo -e "inscopeurl - submodule of subenum - healerenum - healer - get scopes, process them, find wildcard scopes and run sub enumerations on them
@@ -84,6 +82,11 @@ if [ $eligible_url -eq 1 ]; then
 else
     url_scope=$(scoper -t $tgtname --url)
 fi
+# Check if scoper errored
+exit_code=$?
+if [ $exit_code -ne 0 ]; then
+    seterror "Error while running scoper - exit code: $exit_code - Error message: $url_scope"
+fi 
 # url_scope=$(echo "${url_scope}" | grep -oP "https?://[a-zA-Z0-9.-]+\.[a-zA-Z0-9.-]+")
 
 # If the above command returns an error, exit with error message and error code.
