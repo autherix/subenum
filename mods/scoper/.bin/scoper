@@ -160,6 +160,10 @@ else
         eligible_url_assets=()
         for ((i=1; i<=${tgt_asset_type_count}; i++)); do
             this_eligible_for_submission=$(echo "${tgt_eligible_for_submission}" | sed -n "${i}p" | sed 's/"//  g')
+            # If this_eligible_for_submission is empty, set it to false
+            if [ -z "${this_eligible_for_submission}" ]; then
+                this_eligible_for_submission="false"
+            fi
             # if this_eligible_for_submission is true:
             if [ $this_eligible_for_submission == "true" ]; then
                 this_asset_type=$(echo "${tgt_asset_type}" | sed -n "${i}p" | sed 's/"//g')

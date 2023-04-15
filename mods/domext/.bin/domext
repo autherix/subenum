@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+import os, sys
+def LoadVenv():
+    bin_dir = os.path.dirname(os.path.abspath(__file__))
+    venv_dir = os.path.join(os.path.dirname(bin_dir), '.venv')
+    venv_parent_dir = os.path.dirname(venv_dir)
+
+    # Check if the virtual environment exists
+    if not os.path.exists(venv_dir):
+        print("Virtual environment not found. Trying to create one...")
+        # Run a command to create the virtual environment in the parent path
+        res = os.system(f'python3 -m venv {venv_dir}')
+        if res != 0:
+            print('Failed to create virtual environment.')
+            exit(1)
+        else:
+            print('Virtual environment created.')
+            # If there is a requirements.txt in the parent path, install the dependencies
+        requirements_txt = os.path.join(venv_parent_dir, 'requirements.txt')
+        if os.path.exists(requirements_txt):
+            source_cmd = f'source {os.path.join(venv_dir, "bin", "activate")} > /dev/null 2>&1'
+            pyinstall_cmd = f'python3 -m pip install -r {requirements_txt} > /dev/null 2>&1'
+            res = os.system(f'bash -c "{source_cmd} && {pyinstall_cmd} && deactivate > /dev/null 2>&1"')
+            # res = os.system(f'{os.path.join(venv_dir, "bin", "python3")} 
+            if res != 0:
+                print('Failed to install dependencies. requirements.txt may be corrupted or not accessible.')
+                exit(1)
+    # else:
+    #     print('requirements.txt not found or not accessible. Going forward...')
+        # exit(1)
+    
+    # Try to activate the virtual environment
+    os_join_path = os.path.join(venv_dir, 'bin', 'python3')
+    # re-run the program using the virtual environment's Python interpreter
+    if not sys.executable.startswith(os_join_path):
+        res = os.execv(os_join_path, [os_join_path] + sys.argv)
+LoadVenv()
+
+import os, sys, typer
+
+list_tld_country = ["ac", "ad", "ae", "af", "ag", "ai", "al", "am", "an", "ao", "aq", "ar", "as", "at", "au", "aw", "ax", "az", "ba", "bb", "bd", "be", "bf", "bg", "bh", "bi", "bj", "bm", "bn", "bo", "br", "bs", "bt", "bv", "bw", "by", "bz", "ca", "cc", "cd", "cf", "cg", "ch", "ci", "ck", "cl", "cm", "cn", "co", "cr", "cu", "cv", "cw", "cx", "cy", "cz", "de", "dj", "dk", "dm", "do", "dz", "ec", "ee", "eg", "er", "es", "et", "eu", "fi", "fj", "fk", "fm", "fo", "fr", "ga", "gb", "gd", "ge", "gf", "gg", "gh", "gi", "gl", "gm", "gn", "gp", "gq", "gr", "gs", "gt", "gu", "gw", "gy", "hk", "hm", "hn", "hr", "ht", "hu", "id", "ie", "il", "im", "in", "io", "iq", "ir", "is", "it", "je", "jm", "jo", "jp", "ke", "kg", "kh", "ki", "km", "kn", "kp", "kr", "kw", "ky", "kz", "la", "lb", "lc", "li", "lk", "lr", "ls", "lt", "lu", "lv", "ly", "ma", "mc", "md", "me", "mf", "mg", "mh", "mk", "ml", "mm", "mn", "mo", "mp", "mq", "mr", "ms", "mt", "mu", "mv", "mw", "mx", "my", "mz", "na", "nc", "ne", "nf", "ng", "ni", "nl", "no", "np", "nr", "nu", "nz", "om", "pa", "pe", "pf", "pg", "ph", "pk", "pl", "pm", "pn", "pr", "ps", "pt", "pw", "py", "qa", "re", "ro", "rs", "ru", "rw", "sa", "sb", "sc", "sd", "se", "sg", "sh", "si", "sj", "sk", "sl", "sm", "sn", "so", "sr", "ss", "st", "su", "sv", "sx", "sy", "sz", "tc", "td", "tf", "tg", "th", "tj", "tk", "tl", "tm", "tn", "to", "tr", "tt", "tv", "tw", "tz", "ua", "ug", "uk", "us", "uy", "uz", "va", "vc", "ve", "vg", "vi", "vn", "vu", "wf"]
+
+list_tld_common = ["com", "net", "org", "io", "co", "edu", "gov", "biz", "info", "me", "tv", "us", "ca", "uk", "au", "de", "fr", "jp", "cn", "in", "ru", "br", "mx", "it", "nl", "es", "ch", "se", "no", "at", "dk", "eu", "ninja", "xyz", "club", "top", "space", "site", "online", "tech", "store", "website", "host", "press", "link", "pro", "fun", "news", "club", "live", "work", "site", "blog", "wiki", "help", "shop"]
+
+app = typer.Typer()
+
+# Get arguments
+@app.command()
+def main(
+    domain: str = typer.Argument("", help="Domain name to enumerate"),
+):
+    # If domain is empty, get it from stdin with piping
+    if domain == "":
+        domain = input()
+    # First remove the protocol
+    domain = domain.replace("http://", "").replace("https://", "")
+    # Then remove the path
+    domain = domain.split("/")[0]
+    # Then remove the port
+    domain = domain.split(":")[0]
+    
+    # Split the domain by . 
+    domain_split = domain.split(".")
+    # If the length of the split is less than 2, it is not a valid domain, exit with error
+    if len(domain_split) < 2:
+        print("Invalid domain")
+        exit(1)
+    # Save last two elements to a variable (tld and domain)
+    tld = domain_split[-1]
+    domain = domain_split[-2]
+    # Check if domain is a country code or a common domain, if it is, tld is the last two elements and domain is the last three elements
+    if domain in list_tld_country or domain in list_tld_common:
+        tld = domain_split[-2] + "." + domain_split[-1]
+        domain = domain_split[-3]
+
+    # Print the domain and tld
+    print(f"{domain}.{tld}")
+
+
+
+
+
+
+
+
+if __name__ == "__main__":
+    app()

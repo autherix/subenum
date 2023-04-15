@@ -50,13 +50,11 @@ while [ -n "$1" ]; do
         ;;
       -*|--*)
         echo "Unknown option: $1"
-        sep
         help
         exit 1
         ;;
       *)
         echo "Unknown option: $1"
-        sep
         help
         exit 1
         ;;
@@ -66,7 +64,6 @@ done
 # Check if $tgtname exists, if not exit with error message saying "No target name given", if it does, set tgtname cto $tgtname
 if [ -z "$tgtname" ]; then
     echo "No target name given"
-    sep
     help
     exit 1
 else
