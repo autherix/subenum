@@ -157,7 +157,7 @@ if [[ $platform == "h1" ]]; then
 
     # Run (in blue) subfinder on the wildcard domains and save all the results to a variable called subfinder_results_wild
     echo -e "\e[34m[+] Running subfinder on wildcard domains\e[0m"
-    subfinder_results_wild=$(subfinder $inscope_urls_wild_subfinder -oJ -silent)
+    subfinder_results_wild=$(subfinder $inscope_urls_wild_subfinder -oJ -silent -all)
 
     # echo $subfinder_results_wild | jq -r 'select(.input=="semrush.com") | .host'
 

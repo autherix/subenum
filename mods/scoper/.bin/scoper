@@ -121,7 +121,8 @@ else
                 this_asset_type=$(echo "${tgt_asset_type}" | sed -n "${i}p" | sed 's/"//g')
                 this_asset_identifier=$(echo "${tgt_asset_identifier}" | sed -n "${i}p" | sed 's/"//  g')
                 # If this_asset_type is "URL", append this_asset_identifier to the url_assets array
-                if [ "${this_asset_type}" == "URL" ]; then
+                # If this_asset_type is "URL" or "WILDCARD", append this_asset_identifier to the url_assets array
+                if [ "${this_asset_type}" == "URL" ] || [ "${this_asset_type}" == "WILDCARD" ]; then
                     # If this_asset_identifier is not in the url_assets array, append it to the url_assets array
                     if [[ ! " ${url_assets[@]} " =~ " ${this_asset_identifier} " ]]; then
                         url_assets+=("${this_asset_identifier}")
@@ -170,8 +171,9 @@ else
                 this_asset_identifier=$(echo "${tgt_asset_identifier}" | sed -n "${i}p" | sed 's/"//  g')
                 this_eligible_for_bounty=$(echo "${tgt_eligible_for_bounty}" | sed -n "${i}p" | sed   's/   "//  g')
 
-                # If this_asset_type is "URL", append this_asset_identifier to the url_assets array
-                if [ "${this_asset_type}" == "URL" ]; then
+                # If this_asset_type is "URL" or "WILDCARD", append this_asset_identifier to the url_assets array
+                # if [ "${this_asset_type}" == "URL" ]; then
+                if [ "${this_asset_type}" == "URL" ] || [ "${this_asset_type}" == "WILDCARD" ]; then
                   url_assets+=("${this_asset_identifier}")
                 fi
 
@@ -180,9 +182,12 @@ else
                   eligible_assets+=("${this_asset_identifier}")
                 fi
 
-                # If this_asset_type is "URL" and this_eligible_for_bounty is "true", append      this_asset_identifier to the eligible_url_assets array
-                if [ "${this_asset_type}" == "URL" ] && [ "${this_eligible_for_bounty}" == "true" ];  then
-                  eligible_url_assets+=("${this_asset_identifier}")
+                # If (this_asset_type is "URL" or "WILDCARD" ) and this_eligible_for_bounty is "true", append      this_asset_identifier to the eligible_url_assets array
+                # if [ "${this_asset_type}" == "URL" ] && [ "${this_eligible_for_bounty}" == "true" ];  then
+                if [ "${this_asset_type}" == "URL" ] || [ "${this_asset_type}" == "WILDCARD" ]; then
+                    if [ "${this_eligible_for_bounty}" == "true" ]; then
+                        eligible_url_assets+=("${this_asset_identifier}")
+                    fi
                 fi
             fi
         done
