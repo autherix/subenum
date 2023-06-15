@@ -70,8 +70,8 @@ done
 # echo the wildcard domains
 for i in "${wildcard_domains[@]}"
 do
-    # If $i is a vaild form domain then print it (e.g example.com)
-    if [[ $i =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$ ]]; then
+    # If $i is a vaild form domain then print it (which has . in it and does not have space characters in it )
+    if [[ $i == *.* ]] && [[ $i != *" "* ]]; then
         echo "$i"
     fi
 done
