@@ -9,13 +9,21 @@ mkdir -p $c_path/logs
 # In two upper directory, read the file h1_tgts_new_full.json , then jq it to get the list of targets' handles
 target_handle_list=$(healerdb h1_targetinfo list -db bbplats -coll h1 -j | jq -r '.result[]')
 
+# count the targets
+target_count=$(echo $target_handle_list | wc -l)
+c_count=0
+
 # Iterate over the list of targets' handles and run subenum on each of them
 for target_handle in $target_handle_list
 do
+    # Increment the counter
+    c_count=$((c_count+1))
     # Print seperator
-    echo "----------------------------------------"
+    printf " ----------------------------------------\n"
     # Print the target handle
-    echo "Target handle: $target_handle"
+    printf "Target handle: $target_handle\n"
+    # print progress on the same line update
+    printf "Progress: $c_count/$target_count\r"
     # Run subenum on the target handle
     # subenum -p h1 -db enum -t $target_handle
     subenum -p h1 -db enum -t $target_handle >> $c_path/logs/subenum-all-h1.log 2>&1
