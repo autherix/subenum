@@ -2,7 +2,7 @@
 
 # Arguments
 platform=""
-db=""
+db="enum"
 target=""
 Domains=()
 POSITIONAL=()
@@ -10,9 +10,9 @@ POSITIONAL=()
 # Usage
 Usage() {
     printf "======================================================\n"
-    printf "Usage: subenum --platform|-p <platform> --database|-db <database> --target|-t <target> --domains|-d <domain1> <domain2> <domain3> --args <positional args>\n\n"
+    printf "Usage: subenum --database|-db <database>[Opt] --target|-t <target> --domains|-d <domain1> <domain2> <domain3> --args <positional args>\n\n"
     printf "Platform: h1|bc|...|raw\n\n"
-    printf "Hint: platform 'raw' means that you will provide the domains yourself and the script will not run inscopeurl or wildscope\n"
+    printf "Hint: Using flag -d|--domains without providing -t|--target means you're working on a raw target which may not be already in database\n"
     printf "Example:\n\tsubenum -p h1 -db enum -t semrush -d semrush.com -d google.com --args\n"
     printf "======================================================\n"
 }
@@ -31,11 +31,6 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             Usage
             exit 0
-            ;;
-        -p|--platform)
-            platform="$2"
-            shift
-            shift
             ;;
         -db|--database)
             db="$2"
@@ -81,287 +76,231 @@ done
 
 set -- "${POSITIONAL[@]}" # restore positional parameters -> it means that $1 will be the first positional argument, $2 will be the second positional argument, and so on
 
+# if db is empty, set it to enum
+[[ -z $db ]] && db="enum"
 
 # echo domains
-echo "Platform: $platform"
 echo "Database: $db"
-echo "Target: $target"
-echo "Domains: $domains"
+printf "Target: %s\n" "${target:-\e[31mNone\e[0m}" | sed 's/\\e/\x1b/g'
+printf "Domains: %s\n" "${domains:-\e[31mNone\e[0m}" | sed 's/\\e/\x1b/g'
 
-# Check if platform is empty, if so, show error and exit 1
-[[ -z $platform ]] && seterror "No platform provided"
-# Check if db is empty, if so, show error and exit 1
-[[ -z $db ]] && seterror "No database name provided"
 # Check if target is empty, if so, show error and exit 1
 [[ -z $target ]] && seterror "No target name provided"
-# Check if platform is set to raw and if domains is empty, if so, show error and exit 1
-[[ $platform == "raw" && -z $domains ]] && seterror "No domains provided for 'raw' enumeration mode"
 
+# Run scoper_h1.py -t $target, if no error occured and output is not empty, set the scope variable to the output
+scope=$(scoper_h1.py -t $target 2>&1 | jq -r '.relationships.structured_scopes.data[].attributes | select(.eligible_for_submission == true) | select(.asset_type == "WILDCARD" or .asset_type == "URL") | .asset_identifier' 2>&1)
+# scope=$(scoper_h1.py -t $target 2>&1 | jq -r '.relationships.structured_scopes.data[].attributes | select(.asset_type == "WILDCARD" or .asset_type == "URL") | .asset_identifier, .instruction' 2>&1)
 
-# If platform is h1, run the following
-if [[ $platform == "h1" ]]; then
-    # run inscope urls, then remove newlines
-    inscope_urls=$(inscopeurl -t $target)
-    # Check error 
-    exit_code=$?
-    if [[ $exit_code -ne 0 ]]; then
-        seterror "inscopeurl failed with exit code $exit_code - Error message: $inscope_urls"
-    fi
-
-    # healerdb init 
-    healerdb database create -db $db
-    healerdb target create -db $db -t $target
-    
-    # If inscope_urls is empty, return error saying that there are no inscope urls
-    if [[ -z $inscope_urls ]]; then
-        seterror "No inscope urls found"
-    fi
-
-    # in blue [+] Found inscope urls:
-    # echo -e "\e[34m[+] Found inscope urls:\e[0m"
-    # echo -e ${inscope_urls}
-
-    # Add all inscope urls domains to the database
-    echo ${inscope_urls} | tr -d '\n' | xargs -d" " -I C_SCOPE echo C_SCOPE | domext | sort -u | xargs -I NEW_DOMAIN healerdb domain create -db $db -t $target -d NEW_DOMAIN
-
-    # Find urls not starting with * and add them to an array called inscope_urls_single
-    inscope_urls_single=$(echo $inscope_urls | tr -d '\n' | xargs -d" " -I C_SCOPE echo C_SCOPE | grep -v "*")
-    # in blue [+] Single urls:
-    echo -e "\e[34m[+] Single urls:\e[0m"
-
-    # If inscope_urls_single is empty, print a message saying that there are no single domains(in yellow) and exit 0
-    if [[ -z $inscope_urls_single ]]; then
-        echo -e "\e[33m[+] No single domains found\e[0m"
-    fi
-
-    # Iterate over inscope_urls_single
-    for i in ${inscope_urls_single}; do
-        domain=$(domext $i)
-        healerdb subdomain create -db $db -t $target -d $domain -sub $i
-    done
-
-    # Find wildcards using wildscope
-    inscope_urls_wild=$(echo $inscope_urls | tr -d '\n' | xargs -d" " -I C_SCOPE echo C_SCOPE | wildscope)
-
-    # Make a string ready for subfinder like -d domain1 -d domain2 -d domain3
-    inscope_urls_wild_subfinder="$(echo $inscope_urls_wild | tr -d '\n' | xargs -d" " -I C_SCOPE echo -d C_SCOPE)"
-
-    # If inscope_urls_wild is empty, print a message saying that there are no wildcard domains(in yellow) and exit 0
-    if [[ -z $inscope_urls_wild ]]; then
-        echo -e "\e[33m[+] No wildcard domains found\e[0m"
-        # print in green [+] Subdomain enumeration finished
-        echo -e "\e[32m[+] Subdomain enumeration finished\e[0m"
-        exit 0
-    fi
-
-    # Run (in blue) subfinder on the wildcard domains and save all the results to a variable called subfinder_results_wild
-    echo -e "\e[34m[+] Running subfinder on wildcard domains\e[0m"
-    subfinder_results_wild=$(subfinder $inscope_urls_wild_subfinder -oJ -silent -all)
-
-    # echo $subfinder_results_wild | jq -r 'select(.input=="semrush.com") | .host'
-
-    # Iterate over wild scopes and add them to the database
-    for i in ${inscope_urls_wild}; do
-        echo "Current domain: $i"
-        # Use jq to filter the results of subfinder for current domain
-        c_subfinder_results_wild=$(echo $subfinder_results_wild | jq -r "select(.input==\"$i\") | .host")
-        # Save c_subfinder_results_wild to a temporary file in /tmp, each item in a new line
-        echo $c_subfinder_results_wild | tr " " "\n" > /tmp/c_subfinder_results_wild.txt
-
-        # run healerdb to add the list of subdomains to the database
-        healerdb subdomain multi-create -db $db -t $target -d $i -sub "/tmp/c_subfinder_results_wild.txt"
-        
-        # remove the temporary file
-        rm /tmp/c_subfinder_results_wild.txt
-    done
-    exit 0
-    # echo ${inscope_urls} | tr -d '\n' | xargs -d" " -I C_SCOPE echo C_SCOPE | wildscope | xargs -I THE_DOMAIN bash -c "a_subfinder THE_DOMAIN | httpx -mc 200,301 -silent | xargs -I {} healerdb subdomain create -db $db -t $target -d THE_DOMAIN -sub {}"
-
-
-# else if $1 is 'raw', echo 
-elif [[ $platform == "bc" ]]; then
-
-    scoper_result=$(scoper_bc.py -t $target)
-    # if error, exit 1
-    if [[ $? -ne 0 ]]; then
-        seterror "Error running scoper_bc.py"
-    fi
-
-    echo $scoper_result | jq -r '.target_groups_info.groups_all_data[] | select(.in_scope==true) |(.targets_info.targets[] | .name)' > /tmp/$target_inscope.txt
-
-    # Read lines of the file 
-    while read line; do
-        # echo $line
-        # if line is empty, continue
-        if [[ -z $line ]]; then
-            continue
-        fi
-        # if line is not a domain or subdomain, continue
-        if [[ $line != *"."* || $line == *" "* || $line == *"("* || $line == *")"* ]]; then
-            continue
-        fi
-        # add line to bc_inscope array
-        bc_inscope+=("$line")
-    done < /tmp/$target_inscope.txt
-
-    # if bc_inscope is empty, exit 0
-    if [[ -z $bc_inscope ]]; then
-        # echo orange
-        echo -e "\e[33m[+] No inscope scopes found\e[0m"
-        exit 0
-    fi
-
-    # create database
-    healerdb database create -db $db
-    # create target
-    healerdb target create -db $db -t $target
-
-    # convert bc_inscope array to string with delimiter " "
-    bc_inscope=$(printf '%s\n' "${bc_inscope[@]}")
-
-    printf "$bc_inscope\n"
-    printf "====================================\n"
-
-    # Add all inscope urls domains to the database
-    
-    # echo ${bc_inscope} | xargs -d" " -I C_SCOPE echo C_SCOPE | domext | sort -u | xargs -I NEW_DOMAIN healerdb domain create -db $db -t $target -d NEW_DOMAIN
-
-    # Find urls not starting with * and add them to an array called inscope_urls_single
-    inscope_urls_single=$(echo $bc_inscope | tr -d '\n' | xargs -d" " -I C_SCOPE echo C_SCOPE | grep -v "*")
-    # in blue [+] Single urls:
-    echo -e "\e[34m[+] Single urls:\e[0m"
-
-    # If inscope_urls_single is empty, print a message saying that there are no single domains(in yellow) and exit 0
-    if [[ -z $inscope_urls_single ]]; then
-        echo -e "\e[33m[+] No single domains found\e[0m"
-    fi
-
-    # Iterate over inscope_urls_single
-    for i in ${inscope_urls_single}; do
-        domain=$(domext $i)
-        healerdb subdomain create -db $db -t $target -d $domain -sub $i
-    done
-
-    # Find wildcards using wildscope
-    inscope_urls_wild=$(echo $bc_inscope | tr -d '\n' | xargs -d" " -I C_SCOPE echo C_SCOPE | wildscope)
-
-    # Make a string ready for subfinder like -d domain1 -d domain2 -d domain3
-    inscope_urls_wild_subfinder="$(echo $inscope_urls_wild | tr -d '\n' | xargs -d" " -I C_SCOPE echo -d C_SCOPE)"
-
-    # If inscope_urls_wild is empty, print a message saying that there are no wildcard domains(in yellow) and exit 0
-    if [[ -z $inscope_urls_wild ]]; then
-        echo -e "\e[33m[+] No wildcard domains found\e[0m"
-        # print in green [+] Subdomain enumeration finished
-        echo -e "\e[32m[+] Subdomain enumeration finished\e[0m"
-        exit 0
-    fi
-
-    # Run (in blue) subfinder on the wildcard domains and save all the results to a variable called subfinder_results_wild
-    echo -e "\e[34m[+] Running subfinder on wildcard domains\e[0m"
-
-    subfinder_results_wild=$(subfinder $inscope_urls_wild_subfinder -oJ -silent -all)
-
-    # echo $subfinder_results_wild | jq -r 'select(.input=="semrush.com") | .host'
-
-    # Iterate over wild scopes and add them to the database
-    for i in ${inscope_urls_wild}; do
-        echo "Current domain: $i"
-        # Use jq to filter the results of subfinder for current domain
-        c_subfinder_results_wild=$(echo $subfinder_results_wild | jq -r "select(.input==\"$i\") | .host")
-        # Save c_subfinder_results_wild to a temporary file in /tmp, each item in a new line
-        echo $c_subfinder_results_wild | tr " " "\n" > /tmp/c_subfinder_results_wild.txt
-
-        # run healerdb to add the list of subdomains to the database
-        healerdb subdomain multi-create -db $db -t $target -d $i -sub "/tmp/c_subfinder_results_wild.txt"
-        
-        # remove the temporary file
-        rm /tmp/c_subfinder_results_wild.txt
-    done
-    exit 0
-
-elif [[ $platform == "raw" ]]; then
-    # Echo in blue [+] raw mode
-    printf "\e[34m[+] raw mode\e[0m\n"
-    # remove newlines
-    inscope_urls="$domains"
-
-    # Check error
-    exit_code=$?
-    if [[ $exit_code -ne 0 ]]; then
-        seterror "inscopeurl failed with exit code $exit_code - Error message: $inscope_urls"
-    fi
-
-    # healerdb init 
-    healerdb database create -db $db
-    healerdb target create -db $db -t $target
-
-    # If inscope_urls is empty, return error saying that there are no inscope urls
-    if [[ -z $inscope_urls ]]; then
-        seterror "No inscope urls found"
-    fi
-
-    # in blue [+] Found inscope urls:
-    # echo -e "\e[34m[+] Found inscope urls:\e[0m"
-    # echo -e ${inscope_urls}
-
-    # iterate over inscope_urls
-    for i in ${inscope_urls}; do
-        echo $i | domext | xargs -I DOMAIN healerdb domain create -db $db -t $target -d DOMAIN
-    done
-
-    # Find urls not starting with * and add them to an array called inscope_urls_single
-    inscope_urls_single=$(echo $inscope_urls | tr -d '\n' | xargs -d" " -I C_SCOPE echo C_SCOPE | grep -v "*")
-    # in blue [+] Single urls:
-    echo -e "\e[34m[+] Single urls:\e[0m"
-
-    # If inscope_urls_single is empty, print a message saying that there are no single domains(in yellow) and exit 0
-    if [[ -z $inscope_urls_single ]]; then
-        echo -e "\e[33m[+] No single domains found\e[0m"
-    fi
-
-    # Iterate over inscope_urls_single
-    for i in ${inscope_urls_single}; do
-        domain=$(domext $i)
-        healerdb subdomain create -db $db -t $target -d $domain -sub $i
-    done
-
-    # Find wildcards using wildscope
-    inscope_urls_wild=$(echo $inscope_urls | tr -d '\n' | xargs -d" " -I C_SCOPE echo C_SCOPE | wildscope)
-
-    # Make a string ready for subfinder like -d domain1 -d domain2 -d domain3
-    inscope_urls_wild_subfinder="$(echo $inscope_urls_wild | tr -d '\n' | xargs -d" " -I C_SCOPE echo -d C_SCOPE)"
-
-    # If inscope_urls_wild is empty, print a message saying that there are no wildcard domains(in yellow) and exit 0
-    if [[ -z $inscope_urls_wild ]]; then
-        echo -e "\e[33m[+] No wildcard domains found\e[0m"
-        # print in green [+] Subdomain enumeration finished
-        echo -e "\e[32m[+] Subdomain enumeration finished\e[0m"
-        exit 0
-    fi
-
-    # Run (in blue) subfinder on the wildcard domains and save all the results to a variable called subfinder_results_wild
-    echo -e "\e[34m[+] Running subfinder on wildcard domains\e[0m"
-
-    subfinder_results_wild=$(subfinder $inscope_urls_wild_subfinder -oJ -silent)
-
-    # echo $subfinder_results_wild | jq -r 'select(.input=="semrush.com") | .host'
-
-    # Iterate over wild scopes and add them to the database
-    for i in ${inscope_urls_wild}; do
-        echo "Current domain: $i"
-        # Use jq to filter the results of subfinder for current domain
-        c_subfinder_results_wild=$(echo $subfinder_results_wild | jq -r "select(.input==\"$i\") | .host")
-        # Save c_subfinder_results_wild to a temporary file in /tmp, each item in a new line
-        echo $c_subfinder_results_wild | tr " " "\n" > /tmp/c_subfinder_results_wild.txt
-
-        # run healerdb to add the list of subdomains to the database
-        healerdb subdomain multi-create -db $db -t $target -d $i -sub "/tmp/c_subfinder_results_wild.txt"
-        
-        # remove the temporary file
-        rm /tmp/c_subfinder_results_wild.txt
-    done
-    exit 0
-
-else
-    seterror "Invalid platform provided"
+# If scope is empty or error occured, set scope to ""
+if [[ $? -ne 0 || -z $scope ]]; then
+    # Run scoper_bc.py -t $target, if no error occured and output is not empty, set the scope variable to the output
+    scope=$(scoper_bc.py -t $target 2>&1 | jq -r '.target_groups_info.groups_all_data[] | select(.in_scope==true) | (.targets_info.targets[] | select(.category != "other") | select(.category != "ios") | select(.category != "android") | .name, .uri)' 2>&1)
+    # scope=$(scoper_bc.py -t $target 2>&1 | jq -r '.target_groups_info.groups_all_data[] | select(.in_scope==true) | (.targets_info.targets[] | select(.category != "other") | select(.category != "ios") | select(.category != "android") | .name, .uri, .description)' 2>&1)
 fi
+
+# If scope is empty or error occured, set scope to ""
+if [[ $? -ne 0 || -z $scope ]]; then
+    seterror "Error running scoper_h1.py and scoper_bc.py or no scope found for the provided target"
+fi
+
+scope=$(echo $scope | tr "\n" " ")
+
+# printf "Current scope: $scope\n\n"
+
+text=$scope
+urls=()
+wildsub=()
+singlesub=()
+
+# Find and extract URLs
+url_regex='(http|https):\/\/[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)+'
+# printf "looking for urls\n"
+while [[ $text =~ $url_regex ]]; do
+    urls+=("${BASH_REMATCH[0]}")
+    text=${text/"${BASH_REMATCH[0]}"}
+done
+
+# Find and extract wildcard subdomains
+wildsub_regex='(\*\.)[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)+'
+# printf "looking for wildcard subdomains\n"
+while [[ $text =~ $wildsub_regex ]]; do
+    wildsub+=("${BASH_REMATCH[0]}")
+    text=${text/"${BASH_REMATCH[0]}"}
+done
+
+# Find and extract single subdomains, the last part .tld could not be only numbers, so we have sth.sth.(sth could not be only numbers)
+singlesub_regex='[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)?(\.[a-zA-Z0-9_-]?[a-zA-Z]+[a-zA-Z0-9_-]?)+'
+# singlesub_regex='[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)+'
+# printf "looking for single subdomains\n"
+while [[ $text =~ $singlesub_regex ]]; do
+    # save to temp_singlesub
+    temp_singlesub="${BASH_REMATCH[0]}"
+    # remove it from the text
+    text=${text/"${BASH_REMATCH[0]}"}
+    # if not starting with com. or ending with .google.com or .amazon.com or .microsoft.com or .apple.com or .facebook.com or readme.md or github.com or ending with .amazonaws.com or bugcrowd.com, add it to singlesub array
+    if [[ $temp_singlesub != "com."* && $temp_singlesub != *".google.com" && $temp_singlesub != *".amazon.com" && $temp_singlesub != *".microsoft.com" && $temp_singlesub != *".apple.com" && $temp_singlesub != *".facebook.com" && $temp_singlesub != "README.md" && $temp_singlesub != "github.com" && $temp_singlesub != *".amazonaws.com" && $temp_singlesub != *".bugcrowd.com" ]]; then
+        singlesub+=("$temp_singlesub")
+    fi
+done
+
+# First make all of them small letters, then remove duplicates from urls, wildsub and singlesub
+urls=($(echo "${urls[@]}" | tr ' ' '\n' | tr '[:upper:]' '[:lower:]' | sort -u | tr '\n' ' '))
+wildsub=($(echo "${wildsub[@]}" | tr ' ' '\n' | tr '[:upper:]' '[:lower:]' | sort -u | tr '\n' ' '))
+singlesub=($(echo "${singlesub[@]}" | tr ' ' '\n' | tr '[:upper:]' '[:lower:]' | sort -u | tr '\n' ' '))
+
+# Print the lists
+# print in green urls
+echo -e "\e[32mURLs:\e[0m"
+printf '%s\n' "${urls[@]}"
+echo
+# print in green wildcard subdomains
+echo -e "\e[32mWildcard Subdomains:\e[0m"
+printf '%s\n' "${wildsub[@]}"
+echo
+# print in green single subdomains
+echo -e "\e[32mSingle Subdomains:\e[0m"
+printf '%s\n' "${singlesub[@]}"
+
+printf "====================================\n"
+
+# Iterate over all wildsub, remove first *. from the start of each line, remove duplicates, replace newlines with spaces, run domext, append to domains list
+Domains=()
+for i in ${wildsub[@]}; do
+    # echo $i
+    # echo $i | sed 's/\*\.//g' | sort -u | tr '\n' ' ' | domext | xargs -I DOMAIN Domains+=("DOMAIN")
+    for j in $(echo $i | sed 's/\*\.//g' | sort -u | tr '\n' ' '); do
+        Domains+=("$j")
+        Domains+=("$(domext $j)")
+    done
+done
+
+# Iterate over all singlesub, run domext, append to domains list
+for i in ${singlesub[@]}; do
+    # echo $i
+    # echo $i | domext | xargs -I DOMAIN Domains+=("DOMAIN")
+    Domains+=("$(domext $i)")
+done
+
+# Remove duplicates from domains list
+Domains=($(echo "${Domains[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+# Print domains list
+printf "Domains:\n"
+printf '%s\n' "${Domains[@]}"
+printf "====================================\n"
+        
+# If domains list is empty, exit 0
+if [[ -z $Domains ]]; then
+    # echo orange
+    echo -e "\e[33m[+] No inscope scopes found\e[0m"
+    exit 0
+fi
+
+# convert domains list to string with delimiter " "
+Domains=$(printf '%s\n' "${Domains[@]}")
+
+# remove duplicates from domains list
+Domains=($(echo "${Domains[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+
+# Add domains to the database using healerdb
+for i in ${Domains[@]}; do
+    printf "adding domain: \e[32m$i\e[0m to database\n"
+    new_domain=$(healerdb domain create -db $db -t $target -d $i -j | jq -r '.result')
+    # if new_domain is not empty and its len is 24, print in purple new domain added: $i
+    if [[ ! -z $new_domain ]] && [[ ${#new_domain} -eq 24 ]]; then 
+        printf "\e[35m[+] New domain added: $i\e[0m\n"
+        notifio -t "New domain: $i" -m "New domain added to database: $i" --discord -ch "subenum"
+    fi
+done
+
+# if singlesub is empty, print in yellow
+if [[ -z $singlesub ]]; then
+    printf "\e[33m[+] No single subdomains found\e[0m\n"
+else
+    # Add single subdomains to the database using healerdb
+    for i in ${singlesub[@]}; do
+        domain=$(domext $i)
+        printf "adding single subdomain: \e[32m$i\e[0m from domain \e[32m$domain\e[0m to database\n"
+        new_single_subdomain=$(healerdb subdomain multi-create -db $db -t $target -d $domain -sub $i -j | jq -r '.result')
+        # if new_single_subdomain is equal to $i, print in purple new single subdomain added: $i
+        if [[ $new_single_subdomain == $i ]]; then 
+            printf "\e[35m[+] New single subdomain added: $i\e[0m\n"
+            notifio -t "New single subdomain: $i" -m "New single subdomain added to database: $i" --discord -ch "subenum"
+        fi
+    done
+fi
+
+# convert wildsub to string with delimiter "\n" 
+wildsub=$(printf '%s\n' "${wildsub[@]}")
+
+# remove first *. from each wildcard subdomain, remove duplicates, sort -u
+wildsub=$(echo $wildsub | sed 's/\*\.//g' | sort -u)
+
+# Make a string ready for subfinder like -d domain1 -d domain2 -d domain3
+wildsub_subfinder="$(echo $wildsub | tr -d '\n' | xargs -d" " -I C_SCOPE echo -d C_SCOPE)"
+# replace newlines with space
+wildsub_subfinder=$(echo $wildsub_subfinder | tr '\n' ' ')
+
+# if wildsub_subfinder is empty, print in yellow 
+if [[ -z $wildsub_subfinder ]]; then
+    printf "\e[33m[+] No wildcard subdomains found\e[0m\n"
+    # print in green subdomain enumeration is finished and exit 0
+    echo -e "\e[32m[+] Subdomain enumeration is finished\e[0m"
+    exit 0
+fi
+
+# Run subfinder on wildsub and save the results to a variable called subfinder_results_wild
+printf "Running subfinder on wildsub_subfinder: $wildsub_subfinder\n"
+subfinder_results_wild=$(subfinder $wildsub_subfinder -oJ -silent -all)
+
+# print subfinder_results_wild
+# echo "subfinder_results_wild:"
+# echo $subfinder_results_wild
+
+# iterate over wildsub and add them to the database 
+for i in ${wildsub[@]}; do
+    echo "current domain: $i"
+
+    ## subfinder data
+
+    # Use jq to filter the results of subfinder for current domain
+    c_subfinder_results_wild=$(echo $subfinder_results_wild | jq -r "select(.input==\"$i\") | .host" | tr '\n' ' ')
+    # If c_subfinder_results_wild is empty, continue
+    if [[ -z $c_subfinder_results_wild ]]; then
+        # print in orange no subdomains found for $domain
+        echo -e "\e[33m[+] No subdomains found for $i\e[0m"
+        continue
+    fi
+    # echo "c_subfinder_results_wild: $c_subfinder_results_wild"
+    # Save c_subfinder_results_wild to a temporary file in /tmp, each item in a new line
+    echo $c_subfinder_results_wild | tr ' ' '\n' > /tmp/c_subfinder_results_wild.txt
+    
+    ## crt.sh commands
+
+    # sund curl to https://crt.sh/?q=$i&output=json and save the results to crtsh_results
+    crtsh_results=$(curl -s "https://crt.sh/?q=$i&output=json")
+    crtsh_common_name=$(printf '%s\n' "${crtsh_results[@]}" | jq -r ".[].common_name" | sort -u)
+    crtsh_name_value=$(printf '%s\n' "${crtsh_results[@]}" | jq -r ".[].name_value" | sort -u)
+    # merge them together, remove duplicates, remove *. from start of each, remove duplicates again, save to crtsh_subs
+    crtsh_subs=$(echo -e "$crtsh_common_name\n$crtsh_name_value" | sort -u | sed 's/\*\.//g' | sort -u)
+
+    # printf "crtsh_subs: $crtsh_subs\n====================================\n"
+
+    # append crtsh_subs to /tmp/c_subfinder_results_wild.txt and remove duplicates from that file
+    printf '%s\n' "${crtsh_subs[@]}" | tr ' ' '\n' >> /tmp/c_subfinder_results_wild.txt
+    sort -u /tmp/c_subfinder_results_wild.txt -o /tmp/c_subfinder_results_wild.txt
+
+    # run healerdb to add the list of subdomains to the database
+    new_subdomains=$(healerdb subdomain multi-create -db $db -t $target -d $i -sub "/tmp/c_subfinder_results_wild.txt" -j | jq -r '.result')
+    # if new_subdomains is not empty, print in purple new subdomains added: $new_subdomains
+    if [[ ! -z $new_subdomains ]]; then 
+        printf "\e[35m[+] New subdomains added: $new_subdomains\e[0m\n"
+        notifio -t "New subdomains: $new_subdomains" -m "New subdomains added to database: $new_subdomains" --discord -ch "subenum"
+    fi
+    
+    # remove the temporary file
+    rm /tmp/c_subfinder_results_wild.txt
+done
+
+# print in green subdomain enumeration is finished and exit 0
+echo -e "\e[32m[+] Subdomain enumeration is finished\e[0m"
+exit 0

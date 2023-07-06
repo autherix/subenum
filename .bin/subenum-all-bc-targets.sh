@@ -3,14 +3,11 @@
 # Get current running file's directory and save to a var
 c_path=$(dirname $0)
 
-# Make a logs directory in current running file's directory
-mkdir -p $c_path/logs
-
 # In two upper directory, read the file bc_tgts_new_full.json , then jq it to get the list of targets' handles
 target_handle_list=$(healerdb bc_targetinfo list -db bbplats -coll bc -j | jq -r '.result[]')
 
 # count the targets 
-target_count=$(echo $target_handle_list | wc -l)
+target_count=$(echo $target_handle_list | wc -w)
 c_count=0
 
 # Iterate over the list of targets' handles and run subenum on each of them
@@ -26,15 +23,15 @@ do
     printf "Progress: $c_count/$target_count\r"
     # Run subenum on the target handle
     # subenum -p bc -db enum -t $target_handle
-    subenum -p bc -db enum -t $target_handle > $c_path/logs/subenum-all-bc.log 2>&1
+    subenum -t $target_handle
     wait $!
     # Check if the subenum command was successful or not
     if [ $? -eq 0 ]
     then
         echo "----------------------------------------"
     else
-        echo "subenum failed on target: $target_handle" >> $c_path/logs/subenum-all-bc-targets.log
-        echo "Error text: $?" >> $c_path/logs/subenum-all-bc-targets.log
+        echo "subenum failed on target: $target_handle"
+        echo "Error text: $?"
         echo "----------------------------------------"
     fi
 done
