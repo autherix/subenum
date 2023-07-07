@@ -4,17 +4,24 @@
 platform=""
 db="enum"
 target=""
-Domains=()
 POSITIONAL=()
+add=false
+
 
 # Usage
 Usage() {
-    printf "======================================================\n"
-    printf "Usage: subenum --database|-db <database>[Opt] --target|-t <target> --domains|-d <domain1> <domain2> <domain3> --args <positional args>\n\n"
-    printf "Platform: h1|bc|...|raw\n\n"
-    printf "Hint: Using flag -d|--domains without providing -t|--target means you're working on a raw target which may not be already in database\n"
-    printf "Example:\n\tsubenum -p h1 -db enum -t semrush -d semrush.com -d google.com --args\n"
-    printf "======================================================\n"
+    printf "\n\e[1mUSAGE:\e[0m\n"
+    printf "\tsubenum \e[33m--database|-db\e[0m \e[32m<database>\e[0m[\e[33mOpt\e[0m] \e[33m--target|-t\e[0m \e[32m<target>\e[0m \e[33m--scope|-s\e[0m \e[32m<scope>\e[0m \e[33m--args\e[0m \n\n"
+    printf "\e[1mOPTIONS:\e[0m\n"
+    printf "\t\e[33m--database|-db\e[0m \e[32m<database>\e[0m\t\tDatabase to use (default: enum)\n"
+    printf "\t\e[33m--target|-t\e[0m \e[32m<target>\e[0m\t\tTarget to enumerate\n"
+    printf "\t\e[33m--raw-scope|-rs\e[0m \e[32m<scope>\e[0m\t\tScope to enumerate\n"
+    printf "\t\e[33m--add\e[0m\t\t\tForce to add this domain to the provided target in database\n"
+    printf "\t\e[33m--args\e[0m\t\t\tRemaining positional arguments\n\n"
+    printf "\e[1mHINT:\e[0m\n"
+    printf "\tUsing flag \e[33m--scope|-s\e[0m without providing \e[33m--target|-t\e[0m means you're working on a raw target which may not be already in database\n\n"
+    printf "\e[1mEXAMPLE:\e[0m\n"
+    printf "\tsubenum -p h1 -db enum -t semrush -s semrush.com --args\n\n"
 }
 
 # Error
@@ -23,7 +30,7 @@ seterror() {
     exit 1
 }
 
-domains=""
+scope=""
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     key="$1"
@@ -42,16 +49,13 @@ while [[ $# -gt 0 ]]; do
             shift
             shift
             ;;
-        -d|--domains)
-            while [[ $# -gt 0 ]]; do
-                key="$2"
-                # echo "Key: $key"
-                if [[ $key == -* ]]; then
-                    break
-                fi
-                domains="$domains $key"
-                shift
-            done
+        -s|--scope)
+            raw_scope="$2"
+            shift
+            shift
+            ;;
+        --add)
+            add=true
             shift
             ;;
         --args)
@@ -79,24 +83,34 @@ set -- "${POSITIONAL[@]}" # restore positional parameters -> it means that $1 wi
 # if db is empty, set it to enum
 [[ -z $db ]] && db="enum"
 
-# echo domains
-echo "Database: $db"
+# echo scope
+printf "Database: %s\n" "${db:-\e[31mNone\e[0m}" | sed 's/\\e/\x1b/g'
 printf "Target: %s\n" "${target:-\e[31mNone\e[0m}" | sed 's/\\e/\x1b/g'
-printf "Domains: %s\n" "${domains:-\e[31mNone\e[0m}" | sed 's/\\e/\x1b/g'
+printf "Scope: %s\n" "${scope:-\e[31mNone\e[0m}" | sed 's/\\e/\x1b/g'
 
 # Check if target is empty, if so, show error and exit 1
 [[ -z $target ]] && seterror "No target name provided"
 
-# Run scoper_h1.py -t $target, if no error occured and output is not empty, set the scope variable to the output
-scope=$(scoper_h1.py -t $target 2>&1 | jq -r '.relationships.structured_scopes.data[].attributes | select(.eligible_for_submission == true) | select(.asset_type == "WILDCARD" or .asset_type == "URL") | .asset_identifier' 2>&1)
-# scope=$(scoper_h1.py -t $target 2>&1 | jq -r '.relationships.structured_scopes.data[].attributes | select(.asset_type == "WILDCARD" or .asset_type == "URL") | .asset_identifier, .instruction' 2>&1)
+# if scope is empty:
+if [[ -z $raw_scope ]]; then
 
-# If scope is empty or error occured, set scope to ""
-if [[ $? -ne 0 || -z $scope ]]; then
-    # Run scoper_bc.py -t $target, if no error occured and output is not empty, set the scope variable to the output
-    scope=$(scoper_bc.py -t $target 2>&1 | jq -r '.target_groups_info.groups_all_data[] | select(.in_scope==true) | (.targets_info.targets[] | select(.category != "other") | select(.category != "ios") | select(.category != "android") | .name, .uri)' 2>&1)
-    # scope=$(scoper_bc.py -t $target 2>&1 | jq -r '.target_groups_info.groups_all_data[] | select(.in_scope==true) | (.targets_info.targets[] | select(.category != "other") | select(.category != "ios") | select(.category != "android") | .name, .uri, .description)' 2>&1)
+    # Run scoper_h1.py -t $target, if no error occured and output is not empty, set the scope variable to the output
+    scope=$(scoper_h1.py -t $target 2>&1 | jq -r '.relationships.structured_scopes.data[].attributes | select(.eligible_for_submission == true) | select(.asset_type == "WILDCARD" or .asset_type == "URL") | .asset_identifier' 2>&1)
+    # scope=$(scoper_h1.py -t $target 2>&1 | jq -r '.relationships.structured_scopes.data[].attributes | select(.asset_type == "WILDCARD" or .asset_type == "URL") | .asset_identifier, .instruction' 2>&1)
+
+    # If scope is empty or error occured, set scope to ""
+    if [[ $? -ne 0 || -z $scope ]]; then
+        # Run scoper_bc.py -t $target, if no error occured and output is not empty, set the scope variable to the output
+        scope=$(scoper_bc.py -t $target 2>&1 | jq -r '.target_groups_info.groups_all_data[] | select(.in_scope==true) | (.targets_info.targets[] | select(.category != "other") | select(.category != "ios") | select(.category != "android") | .name, .uri)' 2>&1)
+        # scope=$(scoper_bc.py -t $target 2>&1 | jq -r '.target_groups_info.groups_all_data[] | select(.in_scope==true) | (.targets_info.targets[] | select(.category != "other") | select(.category != "ios") | select(.category != "android") | .name, .uri, .description)' 2>&1)
+    fi
+    scope=$(echo $scope | tr "\n" " ")
+else
+    # set scope to provided scope
+    scope="$raw_scope"
 fi
+
+printf "Scope: %s\n" "${scope:-\e[31mNone\e[0m}" | sed 's/\\e/\x1b/g'
 
 # If scope is empty or error occured, set scope to ""
 if [[ $? -ne 0 || -z $scope ]]; then
@@ -205,10 +219,10 @@ Domains=($(echo "${Domains[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
 for i in ${Domains[@]}; do
     printf "adding domain: \e[32m$i\e[0m to database\n"
     new_domain=$(healerdb domain create -db $db -t $target -d $i -j | jq -r '.result')
-    # if new_domain is not empty and its len is 24, print in purple new domain added: $i
-    if [[ ! -z $new_domain ]] && [[ ${#new_domain} -eq 24 ]]; then 
+    # if new_domain is not empty and its len is 24 and scope was not set in args, print in purple new domain added: $i
+    if [[ ! -z $new_domain ]] && [[ ${#new_domain} -eq 24 ]] && [[ -z $raw_scope ]]; then
         printf "\e[35m[+] New domain added: $i\e[0m\n"
-        notifio -t "New domain: $i" -m "New domain added to database: $i" --discord -ch "subenum"
+        # notifio -t "New domain: $i" -m "New domain added to database: $i" --discord -ch "subenum"
     fi
 done
 
@@ -222,9 +236,9 @@ else
         printf "adding single subdomain: \e[32m$i\e[0m from domain \e[32m$domain\e[0m to database\n"
         new_single_subdomain=$(healerdb subdomain multi-create -db $db -t $target -d $domain -sub $i -j | jq -r '.result')
         # if new_single_subdomain is equal to $i, print in purple new single subdomain added: $i
-        if [[ $new_single_subdomain == $i ]]; then 
+        if [[ $new_single_subdomain == $i ]] && [[ -z $raw_scope ]]; then
             printf "\e[35m[+] New single subdomain added: $i\e[0m\n"
-            notifio -t "New single subdomain: $i" -m "New single subdomain added to database: $i" --discord -ch "subenum"
+            # notifio -t "New single subdomain: $i" -m "New single subdomain added to database: $i" --discord -ch "subenum"
         fi
     done
 fi
@@ -291,10 +305,12 @@ for i in ${wildsub[@]}; do
 
     # run healerdb to add the list of subdomains to the database
     new_subdomains=$(healerdb subdomain multi-create -db $db -t $target -d $i -sub "/tmp/c_subfinder_results_wild.txt" -j | jq -r '.result')
+    printf "new_subdomains: $new_subdomains\n"
     # if new_subdomains is not empty, print in purple new subdomains added: $new_subdomains
-    if [[ ! -z $new_subdomains ]]; then 
+    # if [[ ! -z $new_subdomains ]]; then 
+    if [[ ! -z $new_subdomains ]] && [[ $new_subdomains != [] ]] && [[ -z $raw_scope ]]; then
         printf "\e[35m[+] New subdomains added: $new_subdomains\e[0m\n"
-        notifio -t "New subdomains: $new_subdomains" -m "New subdomains added to database: $new_subdomains" --discord -ch "subenum"
+        # notifio -t "New subdomains: $new_subdomains" -m "New subdomains added to database: $new_subdomains" --discord -ch "subenum"
     fi
     
     # remove the temporary file

@@ -21,7 +21,7 @@ do
     # Print the target handle
     printf "Target handle: $target_handle\n"
     # print progress on the same line update
-    printf "Progress: $c_count/$target_count\r"
+    printf "Progress: $c_count/$target_count\n"
     # Run subenum on the target handle
     # subenum -p h1 -db enum -t $target_handle
     subenum -t $target_handle
