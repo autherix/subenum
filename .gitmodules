@@ -1,3 +1,0 @@
-[submodule "dnsgen"]
-	path = dnsgen
-	url = git@github.com:StoicTopG/dnsgen.git
