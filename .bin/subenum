@@ -93,9 +93,12 @@ printf "Scope: %s\n" "${scope:-\e[31mNone\e[0m}" | sed 's/\\e/\x1b/g'
 # if raw_scope is empty:
 if [[ -z $raw_scope ]]; then
 
+    scoper_bc.py --help > /dev/null 2>&1
+    scoper_h1.py --help > /dev/null 2>&1
+
     # Run scoper_h1.py -t $target, if no error occured and output is not empty, set the scope variable to the output
-    scope=$(scoper_h1.py -t $target 2>&1 | jq -r '.relationships.structured_scopes.data[].attributes | select(.eligible_for_submission == true) | select(.asset_type == "WILDCARD" or .asset_type == "URL") | .asset_identifier' 2>&1)
-    # scope=$(scoper_h1.py -t $target 2>&1 | jq -r '.relationships.structured_scopes.data[].attributes | select(.asset_type == "WILDCARD" or .asset_type == "URL") | .asset_identifier, .instruction' 2>&1)
+    scope=$(scoper_h1.py -t $target 2>&1 | jq -r '.relationships.structured_scopes.data[].attributes | select(.eligible_for_submission == true) | (select(.asset_type == "DOMAIN" or .asset_type == "WILDCARD" or .asset_type == "URL") | .asset_identifier), (select(.asset_type == "OTHER") | .asset_identifier | select(test("^[*]?[.]?[a-zA-Z0-9_-]+(\\.[a-zA-Z0-9_-]+)?$")))')
+    # scope=$(scoper_h1.py -t $target 2>&1 | jq -r '.relationships.structured_scopes.data[].attributes | select(.eligible_for_submission == true) | select(.asset_type == "WILDCARD" or .asset_type == "URL") | .asset_identifier' 2>&1)
 
     # If scope is empty or error occured, set scope to ""
     if [[ $? -ne 0 || -z $scope ]]; then
@@ -117,6 +120,9 @@ if [[ $? -ne 0 || -z $scope ]]; then
 fi
 
 scope=$(echo $scope | tr "\n" " ")
+
+# find regex '*'+subdomain and replace it with '*.'+subdomain
+scope=$(echo $scope | sed 's/\*\([a-zA-Z0-9_-]\)/\*\.\1/g')
 
 # printf "Current scope: $scope\n\n"
 
@@ -274,12 +280,12 @@ declare -a result_files
 
 run_subfinder_single() {
     tmp_result_file="/tmp/subfinder_results_single.txt"
-    subfinder -d $1 -silent -all > $tmp_result_file
+    subfinder -d $1 -silent -all | grep -E ".*$1$" | sort -u > $tmp_result_file
     # Add the result file to result_files array
     result_files+=("$tmp_result_file")
 
     # print the count of the result in color
-    total_sub_count=$(wc -l $tmp_result_file | awk '{print $1}')
+    total_sub_count=$(wc -w $tmp_result_file | awk '{print $1}')
     printf "\e[33m[+] Total subdomains found by \e[32msubfinder\e[0m: %d\e[0m\n" $total_sub_count
 }
 
@@ -339,28 +345,27 @@ run_shuffledns_single() {
 
     printf "running shuffledns on domain: $shuffledns_domain with wordlist: $shuffledns_wordlist\n"
     
-    shuffledns -d $shuffledns_domain -list $shuffledns_wordlist -r /lst/resolver/resolvers-trusted.txt -o $tmp_result_file -silent
+    shuffledns -d $shuffledns_domain -list $shuffledns_wordlist -r /lst/resolver/resolvers-trusted.txt -silent > $tmp_result_file
 
-    printf "successfully ran shuffledns!"
+    printf "successfully ran shuffledns!\n"
 
     # cat file, add $1 to the end of each line, remove duplicates, sort -u, save to tmp_result_file
     cat $tmp_result_file | xargs -I DOMAIN echo DOMAIN.$1 | sort -u > $tmp_result_file
 
-    printf "shuffledns results:\n"
-    cat $tmp_result_file
+    # printf "shuffledns results:\n"
+    # cat $tmp_result_file
 
     # Add the result file to result_files array
     result_files+=("$tmp_result_file")
 
     # print the count of the result in color
-    total_sub_count=$(wc -l $tmp_result_file | awk '{print $1}')
+    total_sub_count=$(wc -w $tmp_result_file | awk '{print $1}')
     printf "\e[33m[+] Total subdomains found by \e[32mshuffledns\e[0m: %d\e[0m\n" $total_sub_count
 }
 
 # iterate over wildsub and add them to the database 
 for i in ${wildsub[@]}; do
-    echo "current domain: $i"
-
+    printf "\e[32m[+] Current Domain: \e[35m%s\e[0m\n" "$i"
     # subfinder
     run_subfinder_single $i
 
@@ -369,7 +374,9 @@ for i in ${wildsub[@]}; do
 
     # merge results together into /tmp/total_passive_result.txt
     # printf '%s\n' "${result_files[@]}"
-    cat "${result_files[@]}" | sort -u > /tmp/total_passive_result.txt # && rm "${result_files[@]}" && result_files=()
+    cat "${result_files[@]}" | sort -u > /tmp/total_passive_result.txt
+    rm "${result_files[@]}"
+    result_files=()
 
     total_passive_file="/tmp/total_passive_result.txt"
     passive_count=$(wc -l $total_passive_file | awk '{print $1}')
@@ -388,7 +395,11 @@ for i in ${wildsub[@]}; do
         run_shuffledns_single $i "/lst/sub/subdomains-top1million-20000.txt"
 
         # append shuffledns result file to /tmp/total_result.txt and remove duplicates from that file
-        cat /tmp/shuffledns_results_single.txt >> /tmp/total_result.txt && sort -u /tmp/total_result.txt -o /tmp/total_result.txt && rm /tmp/shuffledns_results_single.txt && result_files=() && rm /tmp/total_passive_result.txt
+        cat /tmp/shuffledns_results_single.txt >> /tmp/total_result.txt
+        sort -u /tmp/total_result.txt -o /tmp/total_result.txt
+        rm /tmp/shuffledns_results_single.txt
+        result_files=()
+        rm /tmp/total_passive_result.txt
 
         # Run dnsgen with wordlist total result file
         run_dnsgen_single "/tmp/total_result.txt"
@@ -397,7 +408,11 @@ for i in ${wildsub[@]}; do
         run_shuffledns_single $i "/tmp/dnsgen_results_single.txt"
 
         # append shuffledns result file to /tmp/total_result.txt and remove duplicates from that file
-        cat /tmp/shuffledns_results_single.txt >> /tmp/total_result.txt && sort -u /tmp/total_result.txt -o /tmp/total_result.txt && rm /tmp/shuffledns_results_single.txt && result_files=() && rm /tmp/dnsgen_results_single.txt
+        cat /tmp/shuffledns_results_single.txt >> /tmp/total_result.txt
+        sort -u /tmp/total_result.txt -o /tmp/total_result.txt
+        rm /tmp/shuffledns_results_single.txt
+        result_files=()
+        rm /tmp/dnsgen_results_single.txt
     fi
 
     # run healerdb to add the list of subdomains to the database
@@ -409,7 +424,8 @@ for i in ${wildsub[@]}; do
     fi
     
     # remove the temporary file
-    rm /tmp/total_result.txt && result_files=()
+    rm /tmp/total_result.txt
+    result_files=()
 done
 
 # print in green subdomain enumeration is finished and exit 0
